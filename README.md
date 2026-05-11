@@ -103,3 +103,62 @@ Trajectory Analysis
 Explainability Layer
       ↓
 Clinical Dashboard
+
+
+
+🖥 Technology Stack
+Python
+Streamlit
+Plotly
+Scikit-learn
+Pandas
+ReportLab
+
+⚠ Safety Statement
+
+This platform is intended for:
+
+educational use,
+physiological interpretation support,
+and clinical decision-support augmentation.
+
+It is NOT intended for autonomous medical decision-making.
+
+Final clinical judgment remains the responsibility of licensed clinicians.
+
+
+🔬 Future Directions
+
+Planned future enhancements include:
+
+Real ICU dataset validation
+HL7/FHIR integration
+Serial patient database support
+Advanced ARDSNet protocols
+LLM-assisted clinical summarization
+Multi-patient ICU monitoring
+Research-grade validation studies
+
+🌐 Deployment
+
+Live Demo: (Add Streamlit deployment link here)
+
+📄 Research Positioning
+
+This project explores the feasibility of explainable AI-assisted ICU clinical decision support for:
+
+ABG interpretation
+Ventilator assessment
+Oxygenation analysis
+Longitudinal physiological monitoring
+
+within a clinician-oriented interface.
+
+🤝 Acknowledgment
+
+Built as part of ongoing exploration into:
+
+Clinical AI
+Critical care informatics
+Explainable healthcare systems
+Human-centered ICU intelligence
