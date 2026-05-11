@@ -1,0 +1,15 @@
+.stApp {
+    background-color: #f4f7fb;
+    color: #111111;
+}
+
+div[data-testid="stMetric"] {
+
+    background-color: white;
+
+    padding: 15px;
+
+    border-radius: 14px;
+
+    border: 1px solid #d9d9d9;
+}

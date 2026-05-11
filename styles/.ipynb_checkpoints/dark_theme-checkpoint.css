@@ -1,0 +1,54 @@
+.stApp {
+    background-color: #07111f;
+    color: white;
+}
+
+[data-testid="stSidebar"] {
+    background-color: #081522;
+}
+
+div[data-testid="stMetric"] {
+
+    background-color: #0d1b2a;
+
+    padding: 15px;
+
+    border-radius: 14px;
+
+    border: 1px solid #1f2d3d;
+}
+
+h1, h2, h3, h4 {
+    color: white;
+}
+h1 {
+    font-size: 42px;
+    font-weight: 700;
+}
+
+h2 {
+    font-size: 30px;
+}
+
+h3 {
+    font-size: 24px;
+}
+
+p {
+    font-size: 16px;
+}
+button[kind="primary"] {
+
+    border-radius: 12px !important;
+
+    height: 3rem !important;
+
+    font-size: 18px !important;
+
+    font-weight: bold !important;
+}
+
+.stPlotlyChart {
+
+    border-radius: 16px;
+}
