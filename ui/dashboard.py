@@ -1,751 +1,305 @@
-
+import os
+import tempfile
+from datetime import datetime
 import streamlit as st
 
-from logic.abg_engine import analyze_abg
+from logic.abg_engine import analyze_abg, calculate_anion_gap, calculate_delta_ratio
 from logic.severity_engine import calculate_instability
-
 from logic.ml_predictor import predict_patient
-
-from logic.ventilator_engine import (
-    ventilator_considerations
-)
-
-from logic.oxygenation_engine import (
-    calculate_pf_ratio
-)
-
-from ui.gauges import (
-    instability_gauge,
-    pf_ratio_gauge
-)
-
-from ui.cards import (
-    clinical_card,
-    metric_card
-)
-from ui.sidebar import render_sidebar
-
-from utils.presets import presets
+from logic.model_safety_engine import reconcile_model_signal
+from logic.ventilator_engine import ventilator_considerations, prioritize_recommendations
+from logic.oxygenation_engine import calculate_pf_ratio, oxygenation_band
+from logic.trajectory_engine import trajectory_analysis, detect_deterioration
+from logic.teaching_engine import teaching_points
+from logic.reporting_engine import generate_summary
+from ui.cards import clinical_card, metric_card, status_card
 from ui.charts import abg_trend_chart
-from data.patient_history import (initialize_history)
-from logic.trajectory_engine import (trajectory_analysis)
-from logic.oxygenation_engine import (
-    ards_classification
-)
-from data.patient_history import (
-    save_abg_entry,
-    get_history
-)
+from ui.sidebar import render_sidebar
+from data.patient_history import save_abg_entry, get_history
+from utils.presets import presets
+from utils.report_generator import generate_report
 
-from logic.explainability_engine import (
-    explainability_score
-)
 
-from ui.gauges import explainability_gauge
-from logic.trajectory_engine import (
-    detect_deterioration
-)
-from logic.teaching_engine import (
-    teaching_points
-)
-from ui.cards import risk_badge
-from utils.report_generator import (
-    generate_report
-)
+def _risk_status(severity):
+    return {"Critical":"critical", "High Risk":"high", "Moderate":"moderate", "Low Risk":"low", "Stable":"low"}.get(severity, "neutral")
 
-from logic.reporting_engine import (
-    generate_summary
-)
-from logic.ventilator_engine import (
-    prioritize_recommendations
-)
 
-st.markdown(
-    """
-    <div style="
-        background-color:#0d1b2a;
-        padding:14px;
-        border-radius:14px;
-        border:1px solid #1f2d3d;
-        margin-bottom:20px;
-    ">
+def _render_product_header():
+    header_html = (
+        '<div class="vai-product-header">'
+        '<div class="vai-brand-block">'
+        '<div class="vai-kicker">EXPLAINABLE CRITICAL-CARE DECISION SUPPORT</div>'
+        '<div class="vai-product-title">VentAI Insight</div>'
+        '<div class="vai-product-subtitle">ABG interpretation, oxygenation assessment and ventilator review prompts</div>'
+        '</div>'
+        '<div class="vai-header-meta">'
+        '<div class="vai-chip-wrap">'
+        '<span class="vai-chip">RESEARCH PROTOTYPE</span>'
+        '<span class="vai-chip vai-chip-safe">CLINICIAN IN THE LOOP</span>'
+        '</div>'
+        '<div class="vai-developed-by">Developed by <strong>Dr. Gurubasavaraj</strong></div>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(header_html, unsafe_allow_html=True)
 
-    <div style="
-        display:flex;
-        justify-content:space-between;
-        align-items:center;
-    ">
 
-    <div>
-        <h3 style="margin:0;">
-            ICU AI Monitoring System
-        </h3>
+def _render_mode_css(presentation_mode, screenshot_mode):
+    css = []
+    if screenshot_mode:
+        css.append(
+            '[data-testid="stHeader"]{display:none !important;} '
+            'footer{display:none !important;} '
+            '.block-container{padding-top:0.55rem !important;}'
+        )
+    if presentation_mode:
+        css.append(
+            '.block-container{max-width:1540px !important;padding-top:0.55rem !important;padding-bottom:0.8rem !important;} '
+            '.vai-product-header{margin-bottom:0.65rem !important;}'
+        )
+    if css:
+        st.markdown(f"<style>{''.join(css)}</style>", unsafe_allow_html=True)
 
-        <p style="
-            margin:0;
-            color:#8c8c8c;
-        ">
-            Real-time ABG + Ventilator Analysis
-        </p>
-    </div>
 
-    <div style="
-        color:#52c41a;
-        font-weight:bold;
-        font-size:18px;
-    ">
-        ● LIVE SYSTEM
-    </div>
+def _render_inputs(preset):
+    with st.container(border=True):
+        st.markdown("### Patient inputs")
+        abg_col, vent_col = st.columns(2)
+        with abg_col:
+            st.markdown("**ABG parameters**")
+            ph = st.number_input("Arterial pH", value=float(preset.get("ph", 7.28)), step=0.01, format="%.2f")
+            pco2 = st.number_input("PaCO2 (mmHg)", value=float(preset.get("pco2", 58.0)), step=1.0)
+            hco3 = st.number_input("HCO3 (mEq/L)", value=float(preset.get("hco3", 24.0)), step=1.0)
+            po2 = st.number_input("PaO2 (mmHg)", value=float(preset.get("po2", 68.0)), step=1.0)
+        with vent_col:
+            st.markdown("**Ventilator parameters**")
+            rr = st.number_input("Respiratory rate (/min)", value=int(preset.get("rr", 16)), step=1)
+            tv = st.number_input("Tidal volume (mL)", value=int(preset.get("tv", 500)), step=10)
+            fio2 = st.number_input("FiO2", min_value=0.21, max_value=1.0, value=float(preset.get("fio2", 0.50)), step=0.01, format="%.2f")
+            peep = st.number_input("PEEP (cmH2O)", min_value=0, max_value=30, value=int(preset.get("peep", 6)), step=1)
+        with st.expander("Optional chemistry for anion-gap assessment"):
+            chem1, chem2 = st.columns(2)
+            with chem1:
+                na = st.number_input("Sodium / Na (mEq/L)", value=float(preset.get("na", 140.0)), step=1.0)
+            with chem2:
+                cl = st.number_input("Chloride / Cl (mEq/L)", value=float(preset.get("cl", 104.0)), step=1.0)
+        analyze = st.button("Analyze patient", use_container_width=True, type="primary")
+    return {"ph":ph,"pco2":pco2,"hco3":hco3,"po2":po2,"rr":rr,"tv":tv,"fio2":fio2,"peep":peep,"na":na,"cl":cl,"analyze":analyze}
 
-    </div>
 
-    </div>
-    """,
+def _run_analysis(inputs, context):
+    ph,pco2,hco3,po2 = inputs["ph"],inputs["pco2"],inputs["hco3"],inputs["po2"]
+    rr,tv,fio2,peep = inputs["rr"],inputs["tv"],inputs["fio2"],inputs["peep"]
+    na,cl = inputs["na"],inputs["cl"]
+    abg = analyze_abg(ph,pco2,hco3)
+    score,severity,alerts = calculate_instability(ph,pco2,po2)
+    raw_signal,confidence,confidence_label = predict_patient(ph,pco2,hco3,po2,rr,tv,fio2,peep)
+    model_signal,model_status,model_note = reconcile_model_signal(raw_signal,abg,pco2,hco3)
+    pf_ratio,pf_text = calculate_pf_ratio(po2,fio2)
+    oxy_band = oxygenation_band(pf_ratio)
+    considerations = ventilator_considerations(pco2,po2,rr,tv,fio2,peep,abg=abg,hco3=hco3)
+    high_priority,general = prioritize_recommendations(considerations)
+    ag,ag_text = calculate_anion_gap(na,cl,hco3)
+    delta,delta_text = calculate_delta_ratio(ag,hco3)
+    save_abg_entry(ph,pco2,hco3,po2,fio2,severity)
+    result = {"timestamp":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),"inputs":inputs,"context":context,"abg":abg,"score":score,"severity":severity,"alerts":alerts,
+              "model_signal":model_signal,"model_status":model_status,"model_note":model_note,"confidence":confidence,"confidence_label":confidence_label,
+              "pf_ratio":pf_ratio,"pf_text":pf_text,"oxygen_band":oxy_band,"considerations":considerations,"high_priority":high_priority,"general_considerations":general,
+              "anion_gap":ag,"anion_gap_text":ag_text,"delta_ratio":delta,"delta_text":delta_text}
+    st.session_state["latest_analysis"] = result
+    return result
 
-    unsafe_allow_html=True
-)
 
+def _executive_impression(result):
+    abg = result["abg"]
+    compensation = abg.get("compensation_status") or abg.get("compensation")
+    return (f"{abg['primary']} with {abg['state'].lower()}. ABG / oxygenation risk is {result['severity'].lower()} ({result['score']}/100). "
+            f"{compensation}. Oxygenation: P/F {result['pf_ratio']}, {result['pf_text'].lower()}.")
+
+
+def _render_primary_row(result, presentation=False):
+    ratios = [0.9, 1.35, 1.35, 1.05] if presentation else [1.0, 1.25, 1.25, 1.1]
+    c1,c2,c3,c4 = st.columns(ratios)
+    with c1:
+        status_card(
+            "ABG / oxygenation risk",
+            f"{result['severity']} · {result['score']}/100",
+            status=_risk_status(result["severity"]),
+            helper=None if presentation else "Excludes HR, MAP, temperature and SpO2."
+        )
+    with c2:
+        clinical_card("Primary disorder", result["abg"]["primary"], compact=True)
+    with c3:
+        clinical_card("Compensation", result["abg"].get("compensation_status") or "Review full context", compact=True)
+    with c4:
+        clinical_card("Oxygenation", f"P/F {result['pf_ratio']} · {result['pf_text']}", compact=True)
+
+
+def _render_hero(result, presentation=False):
+    left,right = st.columns([1.6,1])
+    with left:
+        with st.container(border=True):
+            st.markdown("### Executive clinical impression")
+            st.write(_executive_impression(result))
+            if not presentation:
+                st.caption(f"Latest analysis: {result['timestamp']} · Prototype decision support; clinician interpretation remains primary.")
+            if result["model_status"] == "Physiology-model conflict":
+                st.warning("Secondary model signal withheld because it conflicted with the physiological rule layer.")
+            elif not presentation:
+                st.caption(f"Secondary model signal: {result['model_signal']} ({result['confidence_label'].lower()}).")
+    with right:
+        with st.container(border=True):
+            st.markdown("### Prioritized considerations")
+            shown = 0
+            for item in result["high_priority"]:
+                st.markdown(f"- {item}")
+                shown += 1
+                if presentation and shown >= 2:
+                    break
+            if (not presentation or shown < 2):
+                for item in result["general_considerations"]:
+                    st.markdown(f"- {item}")
+                    shown += 1
+                    if presentation and shown >= 2:
+                        break
+            if not presentation:
+                st.caption("Clinical consideration prompts only - not direct treatment instructions.")
+
+
+def _render_context_strip(result):
+    st.markdown("#### Physiological context")
+    c1,c2,c3,c4 = st.columns(4)
+    ctx=result["context"]
+    with c1: metric_card("SpO2", f"{ctx['spo2']}%")
+    with c2: metric_card("Heart rate", f"{ctx['heart_rate']} bpm")
+    with c3: metric_card("MAP", f"{ctx['map_pressure']} mmHg")
+    with c4: metric_card("Temperature", f"{ctx['temperature']:.1f} C")
+    st.caption("Context vitals are shown for clinical orientation and are not included in the ABG / oxygenation risk index.")
+
+
+def _render_reasoning_tab(result):
+    st.markdown("### Physiological reasoning")
+    for index,item in enumerate(result["abg"]["reasoning"],start=1):
+        with st.container(border=True):
+            st.markdown(f"**Step {index}**")
+            st.write(item)
+    if result["alerts"]:
+        st.markdown("#### Risk flags")
+        for alert in result["alerts"]: st.write(f"- {alert}")
+    st.markdown("#### Compensation detail")
+    st.write(result["abg"]["compensation"])
+    st.markdown("#### Chemistry")
+    chem1,chem2=st.columns(2)
+    with chem1: clinical_card("Anion gap", f"{result['anion_gap']:.1f} · {result['anion_gap_text']}", compact=True)
+    with chem2:
+        delta=result["delta_ratio"]
+        value=f"{delta:.2f} · {result['delta_text']}" if delta is not None else result["delta_text"]
+        clinical_card("Delta ratio", value, compact=True)
+    st.markdown("#### Secondary model signal")
+    clinical_card("Model pattern", result["model_signal"], compact=True)
+    st.caption(f"{result['model_status']} · {result['confidence_label']} ({result['confidence']*100:.1f}%).")
+    st.write(result["model_note"])
+    points = teaching_points(result["abg"]["primary"])
+    if points and points != ["No teaching pearls available."]:
+        with st.expander("Teaching notes"):
+            for point in points:
+                st.write(f"- {point}")
+
+
+def _render_trajectory_tab(result):
+    history=get_history()
+    st.caption(f"Current session: {len(history)} stored ABG analyses.")
+    fig=abg_trend_chart(history, compact=False)
+    if fig: st.plotly_chart(fig,use_container_width=True)
+    else: st.info("Analyze at least two readings in this session to display trajectory.")
+    trajectory=trajectory_analysis(history)
+    deterioration=detect_deterioration(history)
+    if trajectory:
+        st.markdown("#### Trajectory interpretation")
+        for item in trajectory: st.write(f"- {item}")
+    if deterioration:
+        st.markdown("#### Deterioration flags")
+        for item in deterioration: st.warning(item)
+
+
+def _render_ventilator_tab(result):
+    st.caption("Ventilator outputs are review prompts only. They do not constitute autonomous ventilator-setting instructions.")
+    if result["high_priority"]:
+        st.markdown("### Higher-priority review")
+        for item in result["high_priority"]: st.warning(item)
+    st.markdown("### Additional considerations")
+    for item in result["general_considerations"]: st.info(item)
+
+
+def _render_report_tab(result):
+    st.markdown("### Clinical report")
+    summary=generate_summary(result["abg"],result["severity"],result["model_signal"],result["pf_ratio"],result["considerations"],
+                             model_status=result["model_status"],model_note=result["model_note"],oxygenation_text=result["pf_text"],risk_score=result["score"])
+    temp_path=None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf",delete=False) as tmp: temp_path=tmp.name
+        generate_report(temp_path,summary)
+        with open(temp_path,"rb") as f: pdf_bytes=f.read()
+        st.download_button("Download clinical report",data=pdf_bytes,file_name="VentAI_Insight_Clinical_Report.pdf",mime="application/pdf",use_container_width=True)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try: os.remove(temp_path)
+            except OSError: pass
+    st.caption("Report generated from the current prototype analysis. Not a substitute for a clinical record or clinician judgment.")
+
+
+def _render_presentation_view(result):
+    st.markdown('<div class="vai-presentation-label">CONFERENCE VIEW</div>', unsafe_allow_html=True)
+    _render_primary_row(result, presentation=True)
+    _render_hero(result, presentation=True)
+
+    history=get_history()
+    fig=abg_trend_chart(history, compact=True)
+    if fig:
+        st.plotly_chart(fig,use_container_width=True)
+    else:
+        st.caption("Add a second analysis to include serial trajectory in Presentation Mode.")
+
+    st.markdown(
+        '<div class="vai-presentation-footer">'
+        'VentAI Insight · Research prototype · Clinician-in-the-loop decision support · '
+        'Developed by Dr. Gurubasavaraj'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 
 def render_dashboard():
+    selected_preset,presentation_mode,screenshot_mode,spo2,heart_rate,map_pressure,temperature=render_sidebar()
+    _render_mode_css(presentation_mode,screenshot_mode)
+    _render_product_header()
+    preset={} if selected_preset=="Custom" else presets[selected_preset]
+    context={"spo2":spo2,"heart_rate":heart_rate,"map_pressure":map_pressure,"temperature":temperature}
 
-    # -----------------------------------
-    # SIDEBAR
-    # -----------------------------------
+    if presentation_mode:
+        result=st.session_state.get("latest_analysis")
+        if result is None:
+            st.info("Analyze a case first, then enable Presentation Mode.")
+            return
+        _render_presentation_view(result)
+        return
 
-    (
-        selected_preset,
-        presentation_mode,
-        screenshot_mode,
-        spo2,
-        heart_rate,
-        map_pressure,
-        temperature
-    ) = render_sidebar()
+    inputs=_render_inputs(preset)
+    result=_run_analysis(inputs,context) if inputs["analyze"] else st.session_state.get("latest_analysis")
+    if result is None:
+        st.caption("Enter or load a scenario and select Analyze patient to generate the clinical cockpit.")
+        return
 
-    # -----------------------------------
-    # HEADER
-    # -----------------------------------
-
-    st.markdown(
-        """
-        <div style="
-            background: linear-gradient(135deg, #0d1b2a, #102840);
-            padding:28px;
-            border-radius:18px;
-            border:1px solid #1f2d3d;
-            margin-bottom:20px;
-        ">
-
-        <h1 style="
-            margin-bottom:5px;
-            color:white;
-            font-size:46px;
-        ">
-            🫁 VentAI (ICU AI Assistant)
-        </h1>
-
-        <p style="
-            color:#d9d9d9;
-            font-size:18px;
-            margin-bottom:12px;
-        ">
-            Explainable ABG + Ventilator Clinical Decision Support
-        </p>
-
-        <p style="
-            color:#8c8c8c;
-            font-size:14px;
-            margin:0;
-        ">
-            Developed by <b>Dr. Gurubasavaraj</b><br>
-            Clinical AI & Critical Care Innovator
-        </p>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    status1, status2, status3, status4 = st.columns(4)
-
-    with status1:
-
-        st.success("🟢 AI Engine Active")
-
-    with status2:
-
-        st.info("📡 Monitoring Enabled")
-
-    with status3:
-
-        st.warning("🧠 Explainability Mode")
-
-    with status4:
-
-        st.error("⚡ ICU Decision Support")
-    
     st.markdown("---")
-
-    # -----------------------------------
-    # LOAD PRESET
-    # -----------------------------------
-
-    preset = {}
-
-    if selected_preset != "Custom":
-
-        preset = presets[selected_preset]
-
-    if screenshot_mode:
-
-        st.markdown(
-            """
-            <style>
-
-            footer {
-                visibility: hidden;
-            }
-
-            header {
-                visibility: hidden;
-            }
-
-            .block-container {
-                padding-top: 1rem;
-            }
-
-            </style>
-            """,
-
-            unsafe_allow_html=True
-        )
-
-    # -----------------------------------
-    # INPUT SECTION
-    # -----------------------------------
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.subheader("ABG Parameters")
-
-        ph = st.number_input(
-            "Arterial pH",
-            value=preset.get("ph", 7.28)
-        )
-
-        pco2 = st.number_input(
-            "PaCO₂ (mmHg)",
-            value=preset.get("pco2", 58.0)
-        )
-
-        hco3 = st.number_input(
-            "HCO₃⁻ (mEq/L)",
-            value=preset.get("hco3", 24.0)
-        )
-
-        po2 = st.number_input(
-            "PaO₂ (mmHg)",
-            value=preset.get("po2", 68.0)
-        )
-
-    with col2:
-
-        st.subheader("Ventilator Parameters")
-
-        rr = st.number_input(
-            "Respiratory Rate",
-            value=preset.get("rr", 16)
-        )
-
-        tv = st.number_input(
-            "Tidal Volume (mL)",
-            value=preset.get("tv", 500)
-        )
-
-        fio2 = st.number_input(
-            "FiO₂",
-            value=preset.get("fio2", 0.5)
-        )
-
-        peep = st.number_input(
-            "PEEP",
-            value=preset.get("peep", 6)
-        )
-
-    # -----------------------------------
-    # ANALYZE BUTTON
-    # -----------------------------------
-
-    analyze = st.button(
-        "🔍 Analyze Patient",
-        use_container_width=True
-    )
-
-    # -----------------------------------
-    # MAIN ANALYSIS
-    # -----------------------------------
-
-    if analyze:
-
-        # -----------------------------------
-        # ABG ANALYSIS
-        # -----------------------------------
-
-        abg = analyze_abg(
-            ph,
-            pco2,
-            hco3
-        )
-
-        # -----------------------------------
-        # SEVERITY
-        # -----------------------------------
-
-        score, severity, alerts = (
-            calculate_instability(
-                ph,
-                pco2,
-                po2
-            )
-        )
-
-        # -----------------------------------
-        # SAVE SESSION
-        # -----------------------------------
-
-        save_abg_entry(
-            ph,
-            pco2,
-            hco3,
-            po2,
-            fio2,
-            severity
-        )
-
-        # -----------------------------------
-        # ML PREDICTION
-        # -----------------------------------
-
-        prediction, confidence, conf_label = (
-            predict_patient(
-                ph,
-                pco2,
-                hco3,
-                po2,
-                rr,
-                tv,
-                fio2,
-                peep
-            )
-        )
-
-        # -----------------------------------
-        # OXYGENATION
-        # -----------------------------------
-
-        pf_ratio, pf_text = (
-            calculate_pf_ratio(
-                po2,
-                fio2
-            )
-        )
-
-        ards_status = (
-            ards_classification(
-                pf_ratio
-            )
-        )
-
-        # -----------------------------------
-        # VENTILATOR CONSIDERATIONS
-        # -----------------------------------
-
-        vent_considerations = (
-            ventilator_considerations(
-                pco2,
-                po2,
-                rr,
-                tv,
-                fio2,
-                peep
-            )
-        )
-
-        # -----------------------------------
-        # ALERT BANNER
-        # -----------------------------------
-
-        if severity == "Critical":
-
-            st.error(
-                "🔴 CRITICAL PHYSIOLOGICAL INSTABILITY"
-            )
-
-        elif severity == "High Risk":
-
-            st.warning(
-                "🟠 HIGH RISK ABG PROFILE"
-            )
-
-        elif severity == "Moderate":
-
-            st.info(
-                "🟡 MODERATE PHYSIOLOGICAL DISTURBANCE"
-            )
-
-        else:
-
-            st.success(
-                "🟢 RELATIVELY STABLE PROFILE"
-            )
-
-        # -----------------------------------
-        # METRIC STRIP
-        # -----------------------------------
-
-        from ui.cards import metric_card
-
-        metric1, metric2, metric3, metric4 = st.columns(4)
-
-        with metric1:
-
-            metric_card(
-                "Arterial pH",
-                ph,
-                color="#ff4d4f"
-            )
-
-        with metric2:
-
-            metric_card(
-                "PaCO₂ (mmHg)",
-                f"{pco2}",
-                color="#faad14"
-            )
-
-        with metric3:
-
-            metric_card(
-                "PaO₂ (mmHg)",
-                f"{po2}",
-                color="#52c41a"
-            )
-
-        with metric4:
-
-            metric_card(
-                "Instability Level",
-                severity,
-                color="#1f77ff"
-            )
-
-        st.markdown("---")
-
-        # -----------------------------------
-        # AI SUMMARY
-        # -----------------------------------
-
-        st.subheader("🤖 AI Clinical Summary")
-
-        ai1, ai2, ai3 = st.columns(3)
-
-        with ai1:
-
-            clinical_card(
-                "AI Interpretation",
-                prediction
-            )
-
-        with ai2:
-
-            clinical_card(
-                "Interpretive Confidence",
-                conf_label
-            )
-
-        with ai3:
-
-            clinical_card(
-                "P/F Ratio",
-                f"{pf_ratio} → {pf_text}"
-            )
-
-            clinical_card(
-                "ARDS Pattern",
-                ards_status
-            )
-
-        st.markdown("---")
-
-        st.subheader("🩺 Executive Clinical Impression")
-
-        summary_text = f"""
-
-        Primary physiology suggests
-        {abg['primary']} with
-        {abg['state'].lower()}.
-
-        Current instability level is classified as
-        {severity}.
-
-        Oxygenation profile demonstrates
-        {pf_text.lower()} with a P/F ratio of
-        {pf_ratio}.
-
-        Interpretation confidence:
-        {conf_label.lower()}.
-        """
-
-        st.markdown(
-            f"""
-            <div style="
-                background-color:#0d1b2a;
-                padding:22px;
-                border-radius:16px;
-                border-left:6px solid #1f77ff;
-                line-height:1.8;
-                font-size:18px;
-            ">
-            {summary_text}
-            </div>
-            """,
-
-            unsafe_allow_html=True
-        )
-
-        # -----------------------------------
-        # MAIN OUTPUT
-        # -----------------------------------
-
-        left, right = st.columns([2, 1])
-
-        with left:
-
-            clinical_card(
-                "Primary Disorder",
-                abg["primary"]
-            )
-
-            clinical_card(
-                "Acid-Base State",
-                abg["state"]
-            )
-
-            clinical_card(
-                "Compensation",
-                abg["compensation"]
-            )
-
-        with right:
-
-            fig = instability_gauge(score)
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True
-            )
-
-            pf_fig = pf_ratio_gauge(
-                pf_ratio
-            )
-
-            st.plotly_chart(
-                pf_fig,
-                use_container_width=True
-            )
-
-        # -----------------------------------
-        # SESSION HISTORY
-        # -----------------------------------
-
-        history = get_history()
-
-        st.markdown("---")
-
-        st.markdown(
-            f"""
-            <div style="
-                background-color:#0d1b2a;
-                padding:14px;
-                border-radius:12px;
-                border-left:5px solid #1f77ff;
-                margin-bottom:15px;
-            ">
-
-            <h4 style="margin-bottom:5px;">
-                🗂 Current ICU Session
-            </h4>
-
-            <p style="margin:0;">
-                Stored ABG Analyses: <b>{len(history)}</b>
-            </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # -----------------------------------
-        # TREND CHARTS
-        # -----------------------------------
-
-        st.subheader("📈 Serial ABG Trends")
-
-        trend_fig = abg_trend_chart(history)
-
-        if trend_fig:
-
-            st.plotly_chart(
-                trend_fig,
-                use_container_width=True
-            )
-
-        else:
-
-            st.info(
-                "At least two analyses are required to display trends."
-            )
-
-        # -----------------------------------
-        # TRAJECTORY INSIGHTS
-        # -----------------------------------
-
-        trajectory = trajectory_analysis(history)
-
-        if trajectory:
-
-            st.markdown("---")
-
-            st.subheader(
-                "📊 ICU Trajectory Insights"
-            )
-
-            for item in trajectory:
-
-                st.warning(f"• {item}")
-
-        # -----------------------------------
-        # REASONING PANEL
-        # -----------------------------------
-
-        with st.expander(
-            "🧠 AI Clinical Reasoning"
-        ):
-
-            step = 1
-
-            for item in abg["reasoning"]:
-
-                st.markdown(
-                    f"""
-                    <div style="
-                        background-color:#0d1b2a;
-                        padding:12px;
-                        border-radius:10px;
-                        margin-bottom:10px;
-                        border-left:4px solid #1f77ff;
-                    ">
-
-                    <b>Step {step}</b><br>
-                    {item}
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                step += 1
-
-            for alert in alerts:
-
-                st.warning(alert)
-
-        # -----------------------------------
-        # VENTILATOR CONSIDERATIONS
-        # -----------------------------------
-
-        st.markdown("---")
-
-        st.subheader(
-            "🫁 Ventilator Considerations"
-        )
-
-        for item in vent_considerations:
-
-            st.info(f"• {item}")
-
-        # -----------------------------------
-        # CLINICAL PEARLS
-        # -----------------------------------
-
-        st.markdown("---")
-
-        st.subheader("📚 Clinical Pearls")
-
-        pearls = [
-
-            "Respiratory acidosis commonly reflects hypoventilation physiology.",
-
-            "P/F ratio below 200 suggests significant oxygenation impairment.",
-
-            "Compensation patterns help identify mixed acid-base disorders.",
-
-            "Persistent hypercapnia despite high ventilation may indicate increased dead space."
-        ]
-
-        for pearl in pearls:
-
-            st.success(f"• {pearl}")
-
-        # -----------------------------------
-        # PDF REPORT EXPORT
-        # -----------------------------------
-
-        st.markdown("---")
-
-        st.subheader("📄 Export Clinical Report")
-
-        summary = generate_summary(
-            abg,
-            severity,
-            prediction,
-            pf_ratio,
-            vent_considerations
-        )
-
-        report_path = "icu_ai_report.pdf"
-
-        generate_report(
-            report_path,
-            summary
-        )
-
-        with open(report_path, "rb") as pdf_file:
-
-            st.download_button(
-
-                label="⬇ Download ICU Clinical Report",
-
-                data=pdf_file,
-
-                file_name="icu_ai_report.pdf",
-
-                mime="application/pdf",
-
-                use_container_width=True
-            )
-
-        st.markdown("---")
-
-        st.caption(
-            """
-            This platform is intended for clinical decision support,
-            physiological interpretation assistance,
-            and educational use only.
-
-            Final medical decisions remain the responsibility
-            of licensed clinicians.
-            """
-        )
+    _render_primary_row(result)
+    _render_hero(result)
+    _render_context_strip(result)
+
+    reasoning_tab,trajectory_tab,vent_tab,report_tab=st.tabs(["Clinical reasoning","Trajectory","Ventilator considerations","Report"])
+    with reasoning_tab: _render_reasoning_tab(result)
+    with trajectory_tab: _render_trajectory_tab(result)
+    with vent_tab: _render_ventilator_tab(result)
+    with report_tab: _render_report_tab(result)
+
+    st.markdown("---")
+    st.caption("VentAI Insight is a research and educational clinical decision-support prototype. It is not intended for autonomous diagnosis or treatment. Final decisions remain the responsibility of qualified clinicians.")

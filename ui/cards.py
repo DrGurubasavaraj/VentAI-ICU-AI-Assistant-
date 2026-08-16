@@ -1,119 +1,103 @@
+import html
 import streamlit as st
 
 
-def clinical_card(title, value, border_color="#1f77ff"):
+def _safe(value):
+    return html.escape(str(value))
 
-    st.markdown(
-        f"""
-        <div style="
-            background-color:#0d1b2a;
-            padding:18px;
-            border-radius:14px;
-            border-left:6px solid {border_color};
-            margin-bottom:15px;
-        ">
 
-        <h4 style="margin-bottom:10px;">
-            {title}
-        </h4>
-
-        <p style="font-size:18px;">
-            {value}
-        </p>
-
-        </div>
-        """,
-
-        unsafe_allow_html=True
+def clinical_card(
+    title,
+    value,
+    border_color="var(--accent)",
+    eyebrow=None,
+    compact=False
+):
+    eyebrow_html = (
+        f'<div class="vai-card-eyebrow">{_safe(eyebrow)}</div>'
+        if eyebrow else ""
     )
+    compact_class = " vai-card--compact" if compact else ""
+
+    card_html = (
+        f'<div class="vai-card{compact_class}" style="--card-accent:{border_color};">'
+        f'{eyebrow_html}'
+        f'<div class="vai-card-title">{_safe(title)}</div>'
+        f'<div class="vai-card-value">{_safe(value)}</div>'
+        f'</div>'
+    )
+
+    st.markdown(card_html, unsafe_allow_html=True)
+
 
 def metric_card(
     title,
     value,
     delta=None,
-    color="#1f77ff"
+    color="var(--accent)"
 ):
-
-    delta_html = ""
-
-    if delta:
-
-        delta_html = f"""
-        <p style="
-            color:{color};
-            margin-top:8px;
-            font-size:14px;
-        ">
-            {delta}
-        </p>
-        """
-
-    st.markdown(
-        f"""
-        <div style="
-            background-color:#0d1b2a;
-            padding:18px;
-            border-radius:16px;
-            border:1px solid #1f2d3d;
-            text-align:center;
-            margin-bottom:12px;
-        ">
-
-        <h4 style="
-            font-size:20px;
-            margin-bottom:10px;
-            color:#d9d9d9;
-        ">
-
-        <h1 style="
-            font-size:38px;
-            font-weight:700;
-            margin-bottom:0px;
-            color:{color};
-        ">
-            {value}
-        </h2>
-
-        {delta_html}
-
-        </div>
-        """,
-
-        unsafe_allow_html=True
+    delta_html = (
+        f'<div class="vai-metric-note">{_safe(delta)}</div>'
+        if delta is not None else ""
     )
+
+    card_html = (
+        f'<div class="vai-metric" style="--metric-accent:{color};">'
+        f'<div class="vai-metric-title">{_safe(title)}</div>'
+        f'<div class="vai-metric-value">{_safe(value)}</div>'
+        f'{delta_html}'
+        f'</div>'
+    )
+
+    st.markdown(card_html, unsafe_allow_html=True)
+
+
+def status_card(
+    label,
+    value,
+    status="neutral",
+    helper=None
+):
+    helper_html = (
+        f'<div class="vai-status-helper">{_safe(helper)}</div>'
+        if helper else ""
+    )
+
+    card_html = (
+        f'<div class="vai-status-card vai-status-{_safe(status)}">'
+        f'<div class="vai-status-label">{_safe(label)}</div>'
+        f'<div class="vai-status-value">{_safe(value)}</div>'
+        f'{helper_html}'
+        f'</div>'
+    )
+
+    st.markdown(card_html, unsafe_allow_html=True)
+
+
+def executive_impression_card(text):
+    card_html = (
+        '<div class="vai-card" style="--card-accent:var(--accent);">'
+        '<div class="vai-card-title">Executive Clinical Impression</div>'
+        f'<div class="vai-card-value">{_safe(text)}</div>'
+        '</div>'
+    )
+    st.markdown(card_html, unsafe_allow_html=True)
+
 
 def risk_badge(severity):
-
-    colors = {
-
-        "Critical": "#ff4d4f",
-
-        "High Risk": "#ff7a45",
-
-        "Moderate": "#faad14",
-
-        "Stable": "#52c41a"
+    status_map = {
+        "Critical": "critical",
+        "High Risk": "high",
+        "Moderate": "moderate",
+        "Low Risk": "low",
+        "Stable": "low",
     }
+    status = status_map.get(str(severity), "neutral")
 
-    color = colors.get(
-        severity,
-        "#1f77ff"
+    badge_html = (
+        f'<div class="vai-risk-badge vai-risk-{status}">'
+        f'{_safe(severity)}'
+        f'</div>'
     )
 
-    st.markdown(
-        f"""
-        <div style="
-            background-color:{color};
-            padding:10px;
-            border-radius:10px;
-            text-align:center;
-            font-weight:bold;
-            color:white;
-            margin-bottom:15px;
-        ">
-            {severity}
-        </div>
-        """,
-
-        unsafe_allow_html=True
-    )
+    st.markdown(badge_html, unsafe_allow_html=True)

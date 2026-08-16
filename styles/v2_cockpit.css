@@ -1,0 +1,50 @@
+/* VentAI Insight V2 — Conference Polish */
+.vai-product-header{
+    display:flex;justify-content:space-between;align-items:center;gap:1.2rem;
+    padding:17px 20px;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;box-shadow:var(--shadow);margin-bottom:1rem;
+}
+.vai-brand-block{min-width:0;}
+.vai-kicker{color:var(--accent);font-size:.69rem;font-weight:850;letter-spacing:.115em;margin-bottom:4px;}
+.vai-product-title{color:var(--text);font-size:1.85rem;font-weight:850;line-height:1.05;letter-spacing:-.02em;}
+.vai-product-subtitle{color:var(--text-muted);font-size:.86rem;margin-top:6px;}
+.vai-header-meta{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+.vai-chip-wrap{display:flex;gap:.45rem;flex-wrap:wrap;justify-content:flex-end;}
+.vai-chip{
+    border:1px solid var(--border);color:var(--text-muted);background:var(--surface-2);
+    border-radius:999px;padding:6px 9px;font-size:.65rem;font-weight:850;letter-spacing:.045em;white-space:nowrap;
+}
+.vai-chip-safe{border-color:var(--low);color:var(--text);}
+.vai-developed-by{color:var(--text-muted);font-size:.76rem;text-align:right;}
+.vai-developed-by strong{color:var(--text);font-weight:750;}
+.vai-presentation-label{color:var(--accent);font-size:.68rem;font-weight:850;letter-spacing:.12em;margin:0 0 .45rem .15rem;}
+.vai-presentation-footer{
+    color:var(--text-muted);font-size:.70rem;text-align:center;margin-top:.4rem;
+    padding-top:.55rem;border-top:1px solid var(--border);
+}
+
+[data-testid="stVerticalBlockBorderWrapper"]{
+    border-color:var(--border)!important;border-radius:14px!important;background:var(--surface)!important;
+}
+[data-testid="stExpander"]{
+    background:var(--surface)!important;border:1px solid var(--border)!important;border-radius:12px!important;
+}
+[data-testid="stExpander"] summary{background:var(--surface-2)!important;color:var(--text)!important;}
+[data-testid="stExpander"] summary *{color:var(--text)!important;}
+
+button[data-baseweb="tab"]{
+    padding-left:.85rem!important;padding-right:.85rem!important;font-size:.84rem!important;
+}
+button[data-baseweb="tab"][aria-selected="true"]{color:var(--text)!important;}
+[data-testid="stAlert"]{border-radius:10px!important;}
+
+@media (min-width:1100px){
+    .vai-card--compact{min-height:88px!important;}
+    .vai-status-card{min-height:88px!important;}
+}
+@media (max-width:900px){
+    .vai-product-header{flex-direction:column;align-items:flex-start;}
+    .vai-header-meta{align-items:flex-start;}
+    .vai-chip-wrap{justify-content:flex-start;}
+    .vai-developed-by{text-align:left;}
+}

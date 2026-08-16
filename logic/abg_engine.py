@@ -1,189 +1,155 @@
 def analyze_abg(ph, pco2, hco3):
-
-    result = {}
-
-    # ---------------------------
-    # STEP 1 — pH Classification
-    # ---------------------------
+    result = {"state":"", "primary":"", "compensation":"", "compensation_status":"", "reasoning":[], "mixed":False}
 
     if ph < 7.35:
         result["state"] = "Acidemia"
-
     elif ph > 7.45:
         result["state"] = "Alkalemia"
-
     else:
-        result["state"] = "Near Normal / Compensated"
-
-    # ---------------------------
-    # STEP 2 — Primary Disorder
-    # ---------------------------
+        result["state"] = "Near-normal pH"
 
     if ph < 7.35:
-
-        if pco2 > 45:
+        if pco2 > 45 and hco3 < 22:
+            result["primary"] = "Mixed Respiratory + Metabolic Acidosis"
+            result["mixed"] = True
+            result["reasoning"].append("PaCO2 is acidifying while HCO3 is also reduced: two acidifying processes are present.")
+        elif pco2 > 45:
             result["primary"] = "Respiratory Acidosis"
-
         elif hco3 < 22:
             result["primary"] = "Metabolic Acidosis"
-
         else:
-            result["primary"] = "Mixed Disorder"
-
+            result["primary"] = "Acidemia - primary process unclear"
     elif ph > 7.45:
-
-        if pco2 < 35:
+        if pco2 < 35 and hco3 > 26:
+            result["primary"] = "Mixed Respiratory + Metabolic Alkalosis"
+            result["mixed"] = True
+            result["reasoning"].append("PaCO2 is alkalinizing while HCO3 is also elevated: two alkalinizing processes are present.")
+        elif pco2 < 35:
             result["primary"] = "Respiratory Alkalosis"
-
         elif hco3 > 26:
             result["primary"] = "Metabolic Alkalosis"
-
         else:
-            result["primary"] = "Mixed Disorder"
-
+            result["primary"] = "Alkalemia - primary process unclear"
     else:
-        result["primary"] = "Compensated Disorder"
+        if pco2 > 45 and hco3 > 26:
+            result["primary"] = "Compensated / Mixed Respiratory Acidosis Pattern"
+        elif pco2 < 35 and hco3 < 22:
+            result["primary"] = "Compensated / Mixed Respiratory Alkalosis Pattern"
+        elif pco2 > 45 and hco3 < 22:
+            result["primary"] = "Mixed Respiratory + Metabolic Acidosis"
+            result["mixed"] = True
+        elif pco2 < 35 and hco3 > 26:
+            result["primary"] = "Mixed Respiratory + Metabolic Alkalosis"
+            result["mixed"] = True
+        else:
+            result["primary"] = "No dominant acid-base disorder identified"
 
-    # ---------------------------
-    # STEP 3 — Compensation
-    # ---------------------------
+    primary = result["primary"]
 
-    compensation = ""
-    reasoning = []
+    if primary == "Metabolic Acidosis":
+        expected = (1.5 * hco3) + 8
+        low, high = expected - 2, expected + 2
+        result["compensation"] = f"Expected PaCO2 ~= {expected:.1f} mmHg (acceptable range {low:.1f}-{high:.1f}; Winter's formula)"
+        result["reasoning"].append("Reduced HCO3 identifies a metabolic acidifying process.")
+        if low <= pco2 <= high:
+            result["compensation_status"] = "Respiratory compensation broadly appropriate"
+            result["reasoning"].append("Observed PaCO2 is within the expected compensatory range.")
+        elif pco2 > high:
+            result["compensation_status"] = "Additional respiratory acidosis suspected"
+            result["mixed"] = True
+            result["reasoning"].append("Observed PaCO2 is above the expected compensatory range.")
+        else:
+            result["compensation_status"] = "Additional respiratory alkalosis suspected"
+            result["mixed"] = True
+            result["reasoning"].append("Observed PaCO2 is below the expected compensatory range.")
 
-    if result["primary"] == "Metabolic Acidosis":
+    elif primary == "Metabolic Alkalosis":
+        expected = 40 + 0.7 * (hco3 - 24)
+        low, high = expected - 5, expected + 5
+        result["compensation"] = f"Expected PaCO2 ~= {expected:.1f} mmHg (approximate range {low:.1f}-{high:.1f})"
+        result["reasoning"].append("Elevated HCO3 identifies a metabolic alkalinizing process.")
+        if low <= pco2 <= high:
+            result["compensation_status"] = "Respiratory compensation broadly appropriate"
+        elif pco2 > high:
+            result["compensation_status"] = "Additional respiratory acidosis suspected"
+            result["mixed"] = True
+        else:
+            result["compensation_status"] = "Additional respiratory alkalosis suspected"
+            result["mixed"] = True
 
-        expected_pco2 = (1.5 * hco3) + 8
-
-        compensation = (
-            f"Expected PaCO₂ ≈ {round(expected_pco2,1)} "
-            "(Winter’s Formula)"
-        )
-
-        reasoning.append(
-            "Low HCO₃ suggests metabolic acidosis physiology"
-        )
-
-        if abs(pco2 - expected_pco2) > 2:
-
-            compensation += " → Mixed disorder suspected"
-
-            reasoning.append(
-                "Observed PaCO₂ deviates from expected compensation"
-            )
-
-    elif result["primary"] == "Respiratory Acidosis":
-
+    elif primary == "Respiratory Acidosis":
         delta = pco2 - 40
-
         acute_hco3 = 24 + (delta / 10) * 1
         chronic_hco3 = 24 + (delta / 10) * 4
+        result["compensation"] = f"Expected HCO3: acute ~= {acute_hco3:.1f} mEq/L; chronic ~= {chronic_hco3:.1f} mEq/L"
+        result["reasoning"].append("Elevated PaCO2 identifies a respiratory acidifying process.")
+        lower = min(acute_hco3, chronic_hco3) - 2
+        upper = max(acute_hco3, chronic_hco3) + 2
+        if lower <= hco3 <= upper:
+            result["compensation_status"] = "Compensation compatible with acute-to-chronic respiratory acidosis"
+        elif hco3 < lower:
+            result["compensation_status"] = "Additional metabolic acidosis suspected"
+            result["mixed"] = True
+        else:
+            result["compensation_status"] = "Additional metabolic alkalosis suspected"
+            result["mixed"] = True
 
-        compensation = (
-            f"Expected HCO₃: Acute ≈ {round(acute_hco3,1)} | "
-            f"Chronic ≈ {round(chronic_hco3,1)}"
-        )
-
-        reasoning.append(
-            "Elevated PaCO₂ suggests hypoventilation physiology"
-        )
-
-        if acute_hco3 <= hco3 <= chronic_hco3:
-
-            reasoning.append(
-                "Compensation appears physiologically appropriate"
-            )
-
-        elif hco3 < acute_hco3:
-
-            reasoning.append(
-                "Additional metabolic acidosis may be present"
-            )
-
-        elif hco3 > chronic_hco3:
-
-            reasoning.append(
-                "Additional metabolic alkalosis may be present"
-            )
-
-    elif result["primary"] == "Respiratory Alkalosis":
-
+    elif primary == "Respiratory Alkalosis":
         delta = 40 - pco2
-
         acute_hco3 = 24 - (delta / 10) * 2
         chronic_hco3 = 24 - (delta / 10) * 5
+        result["compensation"] = f"Expected HCO3: acute ~= {acute_hco3:.1f} mEq/L; chronic ~= {chronic_hco3:.1f} mEq/L"
+        result["reasoning"].append("Reduced PaCO2 identifies a respiratory alkalinizing process.")
+        lower = min(acute_hco3, chronic_hco3) - 2
+        upper = max(acute_hco3, chronic_hco3) + 2
+        if lower <= hco3 <= upper:
+            result["compensation_status"] = "Compensation compatible with acute-to-chronic respiratory alkalosis"
+        elif hco3 < lower:
+            result["compensation_status"] = "Additional metabolic acidosis suspected"
+            result["mixed"] = True
+        else:
+            result["compensation_status"] = "Additional metabolic alkalosis suspected"
+            result["mixed"] = True
 
-        compensation = (
-            f"Expected HCO₃: Acute ≈ {round(acute_hco3,1)} | "
-            f"Chronic ≈ {round(chronic_hco3,1)}"
-        )
+    elif primary == "Mixed Respiratory + Metabolic Acidosis":
+        result["compensation"] = "Compensation formula is not used as the primary interpretation because both PaCO2 and HCO3 are contributing to acidemia."
+        result["compensation_status"] = "Mixed acidifying processes detected"
 
-        reasoning.append(
-            "Low PaCO₂ suggests hyperventilation physiology"
-        )
+    elif primary == "Mixed Respiratory + Metabolic Alkalosis":
+        result["compensation"] = "Compensation formula is not used as the primary interpretation because both PaCO2 and HCO3 are contributing to alkalemia."
+        result["compensation_status"] = "Mixed alkalinizing processes detected"
 
-    elif result["primary"] == "Metabolic Alkalosis":
-
-        expected_pco2 = (0.7 * hco3) + 20
-
-        compensation = (
-            f"Expected PaCO₂ ≈ {round(expected_pco2,1)}"
-        )
-
-        reasoning.append(
-            "Elevated HCO₃ suggests metabolic alkalosis"
-        )
-
-    result["compensation"] = compensation
-    result["reasoning"] = reasoning
+    else:
+        result["compensation"] = "No single compensation rule is sufficient for this pattern."
+        result["compensation_status"] = "Review full clinical context"
 
     return result
 
+
 def calculate_anion_gap(na, cl, hco3):
-
     ag = na - (cl + hco3)
-
     if ag > 14:
-        interpretation = (
-            "High anion gap metabolic process detected"
-        )
-
+        interpretation = "High anion gap"
     elif ag < 8:
-        interpretation = (
-            "Low anion gap detected"
-        )
-
+        interpretation = "Low anion gap"
     else:
-        interpretation = (
-            "Normal anion gap"
-        )
-
+        interpretation = "Normal anion gap"
     return ag, interpretation
 
 
 def calculate_delta_ratio(ag, hco3):
-
     if hco3 >= 24:
         return None, "Delta ratio not applicable"
-
-    delta = (ag - 12) / (24 - hco3)
-
-    if delta < 1:
-
-        interpretation = (
-            "Possible mixed high and normal anion gap acidosis"
-        )
-
-    elif 1 <= delta <= 2:
-
-        interpretation = (
-            "Pattern consistent with pure high anion gap acidosis"
-        )
-
+    denominator = 24 - hco3
+    if denominator <= 0:
+        return None, "Delta ratio not applicable"
+    delta = (ag - 12) / denominator
+    if delta < 0.4:
+        interpretation = "Predominantly normal-anion-gap metabolic acidosis pattern"
+    elif delta < 0.8:
+        interpretation = "Mixed high- and normal-anion-gap metabolic acidosis pattern"
+    elif delta <= 2:
+        interpretation = "High-anion-gap metabolic acidosis pattern"
     else:
-
-        interpretation = (
-            "Possible concurrent metabolic alkalosis"
-        )
-
+        interpretation = "High-anion-gap acidosis with concurrent metabolic alkalosis pattern"
     return delta, interpretation
