@@ -48,3 +48,62 @@ button[data-baseweb="tab"][aria-selected="true"]{color:var(--text)!important;}
     .vai-chip-wrap{justify-content:flex-start;}
     .vai-developed-by{text-align:left;}
 }
+/* Sidebar control hotfix */
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-baseweb="select"] [role="combobox"]{
+    background:var(--surface-2)!important;
+    color:var(--text)!important;
+    border-color:var(--border)!important;
+    box-shadow:none!important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] *,
+[data-testid="stSidebar"] [data-baseweb="select"] span{
+    color:var(--text)!important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] svg{
+    fill:var(--text-muted)!important;
+    color:var(--text-muted)!important;
+}
+
+[data-testid="stSidebar"] [data-testid="stNumberInput"] > div{
+    background:var(--surface-2)!important;
+    border-color:var(--border)!important;
+    border-radius:9px!important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] input{
+    background:var(--surface-2)!important;
+    color:var(--text)!important;
+    border-color:var(--border)!important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button{
+    background:var(--surface-2)!important;
+    color:var(--text)!important;
+    border-color:var(--border)!important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button:hover{
+    background:var(--surface)!important;
+    color:var(--accent)!important;
+}
+[data-testid="stSidebar"] [data-testid="stNumberInput"] button svg{
+    fill:currentColor!important;
+    color:currentColor!important;
+}
+
+div[data-baseweb="popover"] ul,
+div[data-baseweb="menu"]{
+    background:var(--surface-2)!important;
+    color:var(--text)!important;
+}
+div[data-baseweb="popover"] li{
+    color:var(--text)!important;
+}
+div[data-baseweb="popover"] li:hover{
+    background:var(--surface)!important;
+}
+
+[data-testid="stSidebar"] button:disabled,
+[data-testid="stSidebar"] input:disabled{
+    background:var(--surface-2)!important;
+    color:var(--text-muted)!important;
+    opacity:.72!important;
+}

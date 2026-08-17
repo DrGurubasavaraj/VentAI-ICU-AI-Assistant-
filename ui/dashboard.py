@@ -113,7 +113,7 @@ def _run_analysis(inputs, context):
 def _executive_impression(result):
     abg = result["abg"]
     compensation = abg.get("compensation_status") or abg.get("compensation")
-    return (f"{abg['primary']} with {abg['state'].lower()}. ABG / oxygenation risk is {result['severity'].lower()} ({result['score']}/100). "
+    return (f"{abg['primary']} with {abg['state'].lower()}. ABG risk index is {result['severity'].lower()} ({result['score']}/100). "
             f"{compensation}. Oxygenation: P/F {result['pf_ratio']}, {result['pf_text'].lower()}.")
 
 
@@ -122,10 +122,10 @@ def _render_primary_row(result, presentation=False):
     c1,c2,c3,c4 = st.columns(ratios)
     with c1:
         status_card(
-            "ABG / oxygenation risk",
+            "ABG risk index",
             f"{result['severity']} · {result['score']}/100",
             status=_risk_status(result["severity"]),
-            helper=None if presentation else "Excludes HR, MAP, temperature and SpO2."
+            helper=None if presentation else "Derived from pH, PaCO2 and PaO2; excludes FiO2/PF and context vitals."
         )
     with c2:
         clinical_card("Primary disorder", result["abg"]["primary"], compact=True)
@@ -174,7 +174,7 @@ def _render_context_strip(result):
     with c2: metric_card("Heart rate", f"{ctx['heart_rate']} bpm")
     with c3: metric_card("MAP", f"{ctx['map_pressure']} mmHg")
     with c4: metric_card("Temperature", f"{ctx['temperature']:.1f} C")
-    st.caption("Context vitals are shown for clinical orientation and are not included in the ABG / oxygenation risk index.")
+    st.caption("Context vitals are shown for clinical orientation and are not included in the ABG risk index index.")
 
 
 def _render_reasoning_tab(result):

@@ -1,16 +1,9 @@
-def reconcile_model_signal(
-    model_signal,
-    abg,
-    pco2,
-    hco3
-):
+def reconcile_model_signal(model_signal, abg, pco2, hco3):
     """
-    Reconcile the ML pattern signal with the rule-based physiology layer.
+    Physiology-first safety reconciliation.
 
-    Returns:
-        display_signal, status, note
+    Rule-based physiology takes precedence over the ML pattern classifier.
     """
-
     display_signal = model_signal
     status = "Secondary model signal"
     note = (
@@ -21,22 +14,43 @@ def reconcile_model_signal(
     primary = abg.get("primary", "")
     signal_lower = str(model_signal).lower()
 
-    # Metabolic acidosis: assess respiratory compensation with Winter's formula.
-    if primary == "Metabolic Acidosis":
-        expected_pco2 = (1.5 * hco3) + 8
-        compensation_gap = abs(pco2 - expected_pco2)
+    # Mixed disorders are deliberately withheld from model-directed messaging.
+    # A single model class is too reductive for two simultaneous primary processes.
+    if primary.startswith("Mixed Respiratory + Metabolic"):
+        return (
+            "Model signal suppressed",
+            "Complex physiology — model signal withheld",
+            "The model signal was withheld because a mixed acid-base disorder was "
+            "identified. The physiological rule layer takes precedence."
+        )
 
-        # If respiratory compensation is broadly appropriate, a lower-ventilation
-        # model signal could conflict with the physiology layer and is suppressed.
-        if (
-            compensation_gap <= 2
-            and "lower ventilatory-demand" in signal_lower
-        ):
-            display_signal = "Model signal suppressed"
-            status = "Physiology-model conflict"
-            note = (
-                "The model signal was withheld because PaCO2 is within the "
-                "expected compensatory range for metabolic acidosis. "
+    # Metabolic acidosis: appropriate respiratory compensation should not be
+    # interpreted as excessive ventilation.
+    if primary == "Metabolic Acidosis":
+        expected = (1.5 * hco3) + 8
+        low, high = expected - 2, expected + 2
+
+        if low <= pco2 <= high and "lower ventilatory-demand" in signal_lower:
+            return (
+                "Model signal suppressed",
+                "Physiology-model conflict",
+                "The model signal was withheld because PaCO2 is within the expected "
+                "compensatory range for metabolic acidosis. The physiological rule "
+                "layer takes precedence."
+            )
+
+    # Metabolic alkalosis: appropriate compensatory rise in PaCO2 should not
+    # be interpreted as a generic need for greater ventilation.
+    if primary == "Metabolic Alkalosis":
+        expected = 40 + 0.7 * (hco3 - 24)
+        low, high = expected - 5, expected + 5
+
+        if low <= pco2 <= high and "higher ventilatory-demand" in signal_lower:
+            return (
+                "Model signal suppressed",
+                "Physiology-model conflict",
+                "The model signal was withheld because PaCO2 is compatible with "
+                "expected respiratory compensation for metabolic alkalosis. "
                 "The physiological rule layer takes precedence."
             )
 

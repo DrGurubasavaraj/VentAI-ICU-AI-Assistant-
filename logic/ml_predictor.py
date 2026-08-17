@@ -24,9 +24,7 @@ model = load_model()
 
 def _neutralize_model_label(raw_prediction):
     """
-    Convert treatment-like class names into non-prescriptive research signals.
-
-    The model output must not be displayed as a direct ventilator instruction.
+    Convert treatment-like model classes into non-prescriptive research signals.
     """
     raw_text = str(raw_prediction).strip()
     normalized = raw_text.lower()
@@ -36,14 +34,14 @@ def _neutralize_model_label(raw_prediction):
         "decrease ventilation": "Lower ventilatory-demand pattern",
         "maintain ventilation": "No major ventilatory-change pattern",
         "no change": "No major ventilatory-change pattern",
+        "improve oxygenation": "Oxygenation-support review pattern",
+        "stable": "No major model-defined support-change pattern",
     }
 
     if normalized in label_map:
         return label_map[normalized]
 
-    # Fallback: explicitly frame any unknown class as a model pattern,
-    # never as a clinical command.
-    return f"Model pattern: {raw_text}"
+    return f"Model classification: {raw_text}"
 
 
 def predict_patient(

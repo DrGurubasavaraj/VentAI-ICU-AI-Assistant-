@@ -4,11 +4,14 @@ def calculate_pf_ratio(po2, fio2):
 
     pf_ratio = po2 / fio2
 
-    if pf_ratio < 100:
+    # Inclusive boundary handling:
+    # severe <=100; moderate >100 to <=200;
+    # mild >200 to <=300; preserved >300.
+    if pf_ratio <= 100:
         severity = "Severe oxygenation impairment"
-    elif pf_ratio < 200:
+    elif pf_ratio <= 200:
         severity = "Moderate oxygenation impairment"
-    elif pf_ratio < 300:
+    elif pf_ratio <= 300:
         severity = "Mild oxygenation impairment"
     else:
         severity = "Relatively preserved oxygenation"
@@ -24,23 +27,24 @@ def oxygenation_band(pf_ratio):
     if pf_ratio is None:
         return "Unavailable"
 
-    if pf_ratio < 100:
-        return "Severe impairment band (P/F < 100)"
-    elif pf_ratio < 200:
-        return "Moderate impairment band (P/F 100-199)"
-    elif pf_ratio < 300:
-        return "Mild impairment band (P/F 200-299)"
+    if pf_ratio <= 100:
+        return "Severe impairment band (P/F <= 100)"
+    elif pf_ratio <= 200:
+        return "Moderate impairment band (P/F > 100 to <= 200)"
+    elif pf_ratio <= 300:
+        return "Mild impairment band (P/F > 200 to <= 300)"
     else:
-        return "Preserved range (P/F >= 300)"
+        return "Preserved range (P/F > 300)"
 
 
 def ards_classification(pf_ratio):
     """
-    Backward-compatible wrapper for the existing dashboard.
-    Kept temporarily so V1 imports do not break.
-
-    V2 should label this as an oxygenation / ARDS-compatible band,
-    not as a diagnosis of ARDS.
+    Backward-compatible wrapper.
+    The output is intentionally framed as an oxygenation range rather than
+    an ARDS diagnosis.
     """
     band = oxygenation_band(pf_ratio)
-    return f"ARDS-compatible oxygenation range: {band}; full clinical criteria required"
+    return (
+        f"ARDS-compatible oxygenation range: {band}; "
+        "full clinical criteria required"
+    )
